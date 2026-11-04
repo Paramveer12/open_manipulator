@@ -1,0 +1,45 @@
+# wrong_tcp negative control (RoboCI M3, fork file): MoveIt's URDF puts
+# the tool frame 3 cm ahead of the real one (tcp_offset, fork-only).
+# MoveIt reports success; reached_pose must fail on ground truth.
+version: "1"
+
+environment:
+  ros_distro: jazzy
+  build:
+    rosdep: true
+    repos: [roboci/roboci_omx.repos]
+
+robot:
+  launch: roboci/omx_moveit.launch.py
+  launch_args:
+    world: "${world}"
+    box_in_scene: "false"
+    tcp_offset: "0.03"
+  model: open_manipulator_x
+  stack: moveit
+  planning_group: arm
+  end_effector_link: end_effector_link
+  base_frame: link1
+  sensors:
+    joints: { topic: /joint_states, type: joint_state }
+
+worlds:
+  empty:
+    file: open_manipulator_bringup/worlds/empty_world.sdf
+    map_pose: { x: 0.0, y: 0.0 }
+
+defaults:
+  timeout: 240s
+
+scenarios:
+  - name: wrong_tcp
+    description: MoveIt's tool frame is 3 cm off; the tip must miss.
+    world: empty
+    seeds: [1, 2, 3]
+    steps:
+      - move_to_named: { name: home, plan_attempts: 3 }
+      - move_to_pose: { x: 0.20, y: 0.00, z: 0.22, plan_attempts: 3 }
+    assertions:
+      - reached_pose: { tolerance: 1cm }
+      - no_collision: {}
+      - no_self_collision: {}

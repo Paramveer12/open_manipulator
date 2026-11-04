@@ -1,0 +1,78 @@
+# pick_box_to_zone (RoboCI M3, fork file): real Gazebo pick-and-place
+# with the X's two-finger gripper. Side grasp: the tool stays roughly
+# horizontal (4 joints, position-only goals), the 3 cm part ends up
+# between the fingers 4.4 cm behind the tip, and the DetachableJoint
+# (attach_object) welds it there for the carry, exactly like the UR M2
+# pick. The zone is where the part lands, not the tip: the part hangs
+# 4.4 cm behind the tip along the tool axis at release.
+version: "1"
+
+environment:
+  ros_distro: jazzy
+  build:
+    rosdep: true
+    repos: [roboci/roboci_omx.repos]
+
+robot:
+  launch: roboci/omx_moveit.launch.py
+  launch_args:
+    world: "${world}"
+    box_in_scene: "false"
+    attach_object: "part"
+  model: open_manipulator_x
+  stack: moveit
+  planning_group: arm
+  end_effector_link: end_effector_link
+  base_frame: link1
+  gripper:
+    controller: gripper_controller
+    # Prismatic finger travel per finger: 0.019 open, -0.01 closed.
+    open_position: 0.019
+    close_position: -0.01
+    attach_topic: /roboci/attach/{object}
+    detach_topic: /roboci/detach/{object}
+    attach_state_topic: /roboci/attach_state/{object}
+  sensors:
+    joints: { topic: /joint_states, type: joint_state }
+
+worlds:
+  empty:
+    file: open_manipulator_bringup/worlds/empty_world.sdf
+    map_pose: { x: 0.0, y: 0.0 }
+
+defaults:
+  timeout: 240s
+
+scenarios:
+  - name: pick_box_to_zone
+    description: Pick the 3 cm part and place it in the zone.
+    world: empty
+    seeds: [1, 2, 3]
+    steps:
+      - spawn_object: { name: part, shape: box, size: [0.04, 0.04, 0.04], mass: 0.05, friction: 1.0,
+                        pose: { x: 0.20, y: 0.08, z: 0.02 } }
+      - gripper: { command: open, wait: true }
+      - move_to_named: { name: home, plan_attempts: 3 }
+      # Joint-scripted grasp (the UR M2 pick does the same for its
+      # pregrasp): position-only IK returns different tool orientations
+      # per seed, and a rolled tool misses the part with one finger.
+      # These joints are a passing run's level-tool values (tip over
+      # the part, fingers straddling it); fixed endpoints make the
+      # grasp deterministic, and the lift/carry/place stay poses.
+      - move_joints: { joints: { joint1: 0.3224, joint2: 0.032, joint3: 0.5027, joint4: -0.0102 }, plan_attempts: 3 }
+      - move_joints: { joints: { joint1: 0.3319, joint2: 0.1624, joint3: 0.5168, joint4: -0.0043 }, plan_attempts: 3 }
+      - gripper: { command: close, wait: true }
+      - move_to_pose: { x: 0.242, y: 0.08, z: 0.10, plan_attempts: 3 }
+      - move_to_pose: { x: 0.15, y: -0.10, z: 0.10, plan_attempts: 3 }
+      - move_to_pose: { x: 0.15, y: -0.10, z: 0.05, plan_attempts: 3 }
+      - gripper: { command: open, wait: true }
+      - move_to_pose: { x: 0.15, y: -0.10, z: 0.12, plan_attempts: 3 }
+      - wait: { duration: 1.5s }
+    assertions:
+      - object_lifted: { object: part, min_height: 5cm }
+      - object_not_dropped: { object: part }
+      - object_in_zone: { object: part, zone: { min: { x: 0.05, y: -0.14, z: 0.0 }, max: { x: 0.17, y: -0.02, z: 0.1 } } }
+      - reached_pose: { tolerance: 1cm }
+      - no_collision: { allow: ["gripper_*:part"] }
+      - no_self_collision: {}
+    metrics: [grasp_time, place_error, cycle_time, peak_contact_force]

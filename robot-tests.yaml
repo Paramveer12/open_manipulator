@@ -1,0 +1,122 @@
+# OpenMANIPULATOR-X motion suite (RoboCI M3, fork file on the roboci
+# branch). Poses are tip goals in link1 (== world: the arm is bolted at
+# the origin); the arm is small (30 cm reach), so the grid spans
+# centimetres, not metres. Position-only goals throughout: the X has 4
+# joints and its kinematics.yaml sets position_only_ik, so orientation
+# goals would fail to plan and reached_pose carries no angle_tolerance.
+#
+# No scene box here: the motion suite runs in a clean workspace. The arm
+# starts extended (all joints zero), so a box on the start or goal would
+# poison the first plan with START_STATE_IN_COLLISION; avoid_box lives
+# in its own file with the box off to the side.
+version: "1"
+
+environment:
+  ros_distro: jazzy
+  build:
+    rosdep: true
+    # robotis_interfaces is not released for Jazzy (the vendor CI builds
+    # it from source too); dynamixel_hardware_interface resolves from apt
+    # and is never loaded in sim (the xacro's use_sim branch uses
+    # gz_ros2_control instead).
+    repos: [roboci/roboci_omx.repos]
+
+robot:
+  launch: roboci/omx_moveit.launch.py
+  launch_args:
+    world: "${world}"
+    box_in_scene: "false"
+  model: open_manipulator_x
+  stack: moveit
+  planning_group: arm
+  end_effector_link: end_effector_link
+  base_frame: link1
+  sensors:
+    joints: { topic: /joint_states, type: joint_state }
+
+worlds:
+  empty:
+    file: open_manipulator_bringup/worlds/empty_world.sdf
+    map_pose: { x: 0.0, y: 0.0 }
+
+defaults:
+  timeout: 240s
+
+scenarios:
+  - name: reach_home_and_back
+    description: SRDF named states only, ending at home.
+    world: empty
+    seeds: [1, 2, 3]
+    steps:
+      - move_to_named: { name: home, plan_attempts: 3 }
+      - move_to_named: { name: init, plan_attempts: 3 }
+      - move_to_named: { name: home, plan_attempts: 3 }
+    assertions:
+      # The home tip pose, measured from ground truth (0.164, 0, 0.187):
+      # without it this scenario passes even when the arm never moves.
+      - reached_pose: { tolerance: 1cm, x: 0.164, y: 0.0, z: 0.187 }
+      - no_collision: {}
+      - no_self_collision: {}
+      - max_duration: { value: 180s }
+
+  # Pose grid: one scenario per pose, so reached_pose measures each.
+  - name: pose_grid_a
+    description: Tip to (0.20, 0.00, 0.22), up and forward of home.
+    world: empty
+    seeds: [1, 2, 3]
+    steps:
+      - move_to_named: { name: home, plan_attempts: 3 }
+      - move_to_pose: { x: 0.20, y: 0.00, z: 0.22, plan_attempts: 3 }
+    assertions:
+      - reached_pose: { tolerance: 1cm }
+      - no_collision: {}
+      - no_self_collision: {}
+
+  - name: pose_grid_b
+    description: Tip to (0.20, 0.10, 0.22), same height off to the side.
+    world: empty
+    seeds: [1, 2, 3]
+    steps:
+      - move_to_named: { name: home, plan_attempts: 3 }
+      - move_to_pose: { x: 0.20, y: 0.10, z: 0.22, plan_attempts: 3 }
+    assertions:
+      - reached_pose: { tolerance: 1cm }
+      - no_collision: {}
+      - no_self_collision: {}
+
+  - name: pose_grid_c
+    description: Tip to (0.20, -0.10, 0.18), low on the other side.
+    world: empty
+    seeds: [1, 2, 3]
+    steps:
+      - move_to_named: { name: home, plan_attempts: 3 }
+      - move_to_pose: { x: 0.20, y: -0.10, z: 0.18, plan_attempts: 3 }
+    assertions:
+      - reached_pose: { tolerance: 1cm }
+      - no_collision: {}
+      - no_self_collision: {}
+
+  - name: pose_grid_d
+    description: Tip to (0.26, 0.00, 0.20), near full forward reach.
+    world: empty
+    seeds: [1, 2, 3]
+    steps:
+      - move_to_named: { name: home, plan_attempts: 3 }
+      - move_to_pose: { x: 0.26, y: 0.00, z: 0.20, plan_attempts: 3 }
+    assertions:
+      - reached_pose: { tolerance: 1cm }
+      - no_collision: {}
+      - no_self_collision: {}
+
+  - name: joint_state_noise
+    description: The stack plans from noised joint states (0.05 rad); the verdict must still match the replay.
+    world: empty
+    seeds: [1, 2, 3]
+    steps:
+      - sensor_noise: { sensor: joints, at: 0s, position: 0.05 }
+      - move_to_named: { name: home, plan_attempts: 3 }
+      - move_to_pose: { x: 0.20, y: 0.00, z: 0.22, plan_attempts: 3 }
+    assertions:
+      - reached_pose: { tolerance: 1cm }
+      - no_collision: {}
+      - no_self_collision: {}
